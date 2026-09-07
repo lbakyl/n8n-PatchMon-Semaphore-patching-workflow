@@ -1,0 +1,2214 @@
+{
+  "name": "[CLEANED] PatchMon Auto-Patch Orchestrator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "patchmon-update-available",
+        "options": {}
+      },
+      "id": "2d679b92-b569-4e08-80f2-3218ef626544",
+      "name": "PatchMon Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -3568,
+        912
+      ],
+      "webhookId": "e306c3d5-d8f0-4ac4-ba7f-ba9ba842b7fc",
+      "notes": "TODO: confirm PatchMon's actual webhook payload shape against your instance (Settings > Notifications > Webhooks) and update the 'Normalize Trigger Payload' node's field mapping to match. Also set the HMAC secret check here if you enable signing."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "hostname",
+              "type": "string",
+              "value": "={{ $json.body.metadata.host_name }}"
+            },
+            {
+              "name": "eventType",
+              "type": "string",
+              "value": "={{ $json.body.event_type }}"
+            },
+            {
+              "name": "severity",
+              "type": "string",
+              "value": "={{ $json.body.severity }}"
+            },
+            {
+              "name": "hostId",
+              "type": "string",
+              "value": "={{ $json.body.metadata.host_id }}"
+            },
+            {
+              "name": "pendingCount",
+              "type": "number",
+              "value": "={{ $json.body.metadata.count }}"
+            },
+            {
+              "name": "pendingThreshold",
+              "type": "number",
+              "value": "={{ $json.body.metadata.threshold }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a6863f2c-ac7a-4c87-83a8-5aa6e5397242",
+      "name": "Normalize Trigger Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -3328,
+        912
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Global Config').first().json.SEMAPHORE_BASE_URL }}/api/project/{{ $('Global Config').first().json.SEMAPHORE_PROJECT_ID }}/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ template_id: Number($('Global Config').first().json.SEMAPHORE_LOOKUP_TEMPLATE_ID), limit: $('Normalize Trigger Payload').first().json.hostname }) }}",
+        "options": {}
+      },
+      "id": "e027173d-6b04-4efb-80b9-560dbc73ffcf",
+      "name": "Start Semaphore Lookup Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2720,
+        912
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "15wi8QLuFqDuNjQa",
+          "name": "Semaphore API Token"
+        }
+      },
+      "notes": "Fires the lean 'inventory-lookup' Task Template (connection: local, gather_facts: false) with Limit=hostname. Requires 'Ansible prompts: Limit' enabled on that template for the API-supplied limit to take effect."
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nRNOQoJxKwcuaD9i",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nRNOQoJxKwcuaD9i",
+          "cachedResultName": "PatchMon - Poll Semaphore Sub-Task"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "baseUrl": "={{ $('Global Config').first().json.SEMAPHORE_BASE_URL }}",
+            "projectId": "={{ $('Global Config').first().json.SEMAPHORE_PROJECT_ID }}",
+            "taskId": "={{ String($json.id) }}",
+            "timeoutMinutes": "={{ $('Global Config').first().json.POLL_TIMEOUT_MINUTES_LOOKUP }}",
+            "pollIntervalSeconds": "={{ $('Global Config').first().json.POLL_INTERVAL_SECONDS }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "baseUrl",
+              "displayName": "baseUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "projectId",
+              "displayName": "projectId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "taskId",
+              "displayName": "taskId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "timeoutMinutes",
+              "displayName": "timeoutMinutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "pollIntervalSeconds",
+              "displayName": "pollIntervalSeconds",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "89e92938-67d3-46a7-bf88-fc12072f89f0",
+      "name": "Poll Lookup Task",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -2528,
+        912
+      ],
+      "notes": "After import: open this node and pick the imported 'PatchMon - Poll Semaphore Sub-Task' workflow from the list."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parses the LOOKUP_RESULT_JSON line(s) the patchmon_lookup.yml playbook prints, e.g.\n// LOOKUP_RESULT_JSON: {\"hostname\":\"web2\",\"groups\":[\"nginx\",\"debian_hosts\"],\"is_proxmox_guest\":true,\"proxmox_node\":\"proxmox1\",\"proxmox_vmtype\":\"qemu\",\"proxmox_vmid\":142,\"in_alert_cooldown\":false}\n//\n// Hardened 2026-07-13 (v1): patchmon_lookup.yml runs with 'hosts: all', so if Semaphore's Limit\n// option isn't constraining the run, multiple LOOKUP_RESULT_JSON lines can appear -- this scans\n// all of them and matches on hostname instead of blindly taking the first line.\n//\n// Hardened 2026-07-13 (v2): Ansible's 'debug: msg:' task prints as ok: [host] => { \"msg\": \"...\" },\n// which JSON-escapes every quote inside the message (LOOKUP_RESULT_JSON: {\\\"hostname\\\": ...).\n// JSON.parse() on that raw captured text throws (invalid JSON), and the try/catch below silently\n// swallowed it -- producing lookupHostCount: 0 even when the line was right there in the log. Now\n// un-escaping \\\" -> \" across the whole text before searching/parsing fixes that.\nconst targetHostname = $('Normalize Trigger Payload').first().json.hostname;\nconst text = ($input.first().json.output || '').replace(/\\\\\"/g, '\"');\nconst re = /LOOKUP_RESULT_JSON:\\s*(\\{.*\\})/g;\nlet m;\nconst candidates = [];\nwhile ((m = re.exec(text)) !== null) {\n  try { candidates.push(JSON.parse(m[1])); } catch (e) { /* skip unparsable line */ }\n}\nlet parsed = candidates.find(c => (c.hostname || '').toLowerCase() === (targetHostname || '').toLowerCase());\nconst matchedCorrectHost = !!parsed;\nif (!parsed) parsed = candidates[0] || {};\n\nreturn [{ json: {\n  ...$('Normalize Trigger Payload').first().json,\n  groups: parsed.groups || [],\n  isProxmoxGuest: !!parsed.is_proxmox_guest,\n  proxmoxNode: parsed.proxmox_node || '',\n  proxmoxType: parsed.proxmox_vmtype || '',\n  proxmoxVmid: parsed.proxmox_vmid || '',\n  inAlertCooldown: !!parsed.in_alert_cooldown,\n  lookupStatus: $input.first().json.status,\n  lookupHostCount: candidates.length,\n  lookupMatchedCorrectHost: matchedCorrectHost\n} }];\n"
+      },
+      "id": "c1bc4826-c65d-41a3-9c51-e26972bb17a5",
+      "name": "Parse Group Names",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2320,
+        912
+      ],
+      "notes": "Two layered fixes - (1) matches on hostname across all LOOKUP_RESULT_JSON lines instead of taking the first one blindly, (2) un-escapes \\\" -> \" before JSON.parse, since Ansible's 'debug: msg:' wraps output as an escaped JSON string and parsing the raw escaped text was silently failing (caught by try/catch, defaulting to empty) even when the line was present. lookupHostCount:0 with a real line in the log means bug (2); lookupMatchedCorrectHost:false with lookupHostCount>0 means bug (1) territory (Limit prompt)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Priority-ordered: first matching rule wins. Edit freely as your fleet grows.\n// Fallback lockKeyGroup is null -> lockKey becomes '', meaning no cluster-style group lock applies; \n// Patchmon_tag_host.yml self-guards against duplicate webhooks for the same host via its own-tag check.\nconst rules = [\n  { group: 'galera',        template: $('Global Config').first().json.SEMAPHORE_TEMPLATE_GALERA,  lockKeyGroup: 'cluster_a' },\n  { group: 'cluster_a',     template: $('Global Config').first().json.SEMAPHORE_TEMPLATE_GALERA,  lockKeyGroup: 'cluster_a' },\n  { group: 'cluster_b',     template: $('Global Config').first().json.SEMAPHORE_TEMPLATE_GALERA,  lockKeyGroup: 'cluster_b' },\n  { group: 'nginx',         template: $('Global Config').first().json.SEMAPHORE_TEMPLATE_NGINX,   lockKeyGroup: 'nginx' },\n  { group: 'debian_hosts',  template: $('Global Config').first().json.SEMAPHORE_TEMPLATE_DEBIAN,  lockKeyGroup: null },\n];\nconst groups = $json.groups || [];\nlet chosen = null;\nfor (const r of rules) {\n  if (groups.includes(r.group)) { chosen = r; break; }\n}\nif (!chosen) {\n  chosen = { group: 'unmatched', template: $('Global Config').first().json.SEMAPHORE_TEMPLATE_DEBIAN, lockKeyGroup: null };\n}\nconst lockKey = chosen.lockKeyGroup || '';\n\n// node - success/partial/failure messages included - can read securityOnlyUpdate directly\n// instead of each re-deriving it from SECURITY_ONLY_GROUPS + groups separately.\nconst securityOnlyGroups = (($('Global Config').first().json.SECURITY_ONLY_GROUPS || '')\n  .split(/[,\\n]/).map(g => g.trim().toLowerCase()).filter(g => g.length > 0));\nconst securityOnlyUpdate = securityOnlyGroups.some(g => groups.map(x => x.toLowerCase()).includes(g));\n\nreturn [{ json: { ...$json, semaphoreTemplateId: chosen.template, matchedRule: chosen.group, lockKey, securityOnlyUpdate } }];\n"
+      },
+      "id": "38984288-98a9-4d9e-bfa5-bfca6e983676",
+      "name": "Decide Template + Lock Key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1680,
+        928
+      ],
+      "notes": "This is the one node you'll hand-maintain as your fleet grows: which Proxmox tag/group maps to which Semaphore patch template, and which lock key (cluster) it shares with other hosts."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.isProxmoxGuest }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "63c46c0d-16bd-4c0c-a2ad-6f3c5a9d6028",
+      "name": "Is Proxmox Guest?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        32,
+        368
+      ],
+      "notes": "2026-07-13: moved to run AFTER Lock Acquired?==true (used to run before Start Tag-Add Task and route non-guests around locking entirely -- now everyone gets locked first via helpers/patchmon_tag_host.yml, which picks a Proxmox tag or a local /run lock dir automatically). This check now only decides snapshot-or-not, not lock-or-not."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Global Config').first().json.SEMAPHORE_BASE_URL }}/api/project/{{ $('Global Config').first().json.SEMAPHORE_PROJECT_ID }}/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ template_id: Number($('Global Config').first().json.SEMAPHORE_TEMPLATE_SNAPSHOT), limit: $('Decide Template + Lock Key').first().json.hostname }) }}",
+        "options": {}
+      },
+      "id": "761798b2-1437-4747-9df0-8f2ff38ff12a",
+      "name": "Start Snapshot Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        336,
+        288
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "15wi8QLuFqDuNjQa",
+          "name": "Semaphore API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nRNOQoJxKwcuaD9i",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nRNOQoJxKwcuaD9i",
+          "cachedResultName": "PatchMon - Poll Semaphore Sub-Task"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "baseUrl": "={{ $('Global Config').first().json.SEMAPHORE_BASE_URL }}",
+            "projectId": "={{ $('Global Config').first().json.SEMAPHORE_PROJECT_ID }}",
+            "taskId": "={{ String($json.id) }}",
+            "timeoutMinutes": "={{ $('Global Config').first().json.POLL_TIMEOUT_MINUTES_SNAPSHOT }}",
+            "pollIntervalSeconds": "={{ $('Global Config').first().json.POLL_INTERVAL_SECONDS }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "baseUrl",
+              "displayName": "baseUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "projectId",
+              "displayName": "projectId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "taskId",
+              "displayName": "taskId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "timeoutMinutes",
+              "displayName": "timeoutMinutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "pollIntervalSeconds",
+              "displayName": "pollIntervalSeconds",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "db853193-bf71-481f-9e0c-f5592c5966fd",
+      "name": "Poll Snapshot Task",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        528,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "success",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d6773970-a87c-4833-9055-8a2b3d3c1238",
+      "name": "Snapshot Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        704,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Global Config').first().json.SEMAPHORE_BASE_URL }}/api/project/{{ $('Global Config').first().json.SEMAPHORE_PROJECT_ID }}/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  template_id: Number($('Decide Template + Lock Key').first().json.semaphoreTemplateId),\n  limit: $('Decide Template + Lock Key').first().json.hostname,\n  environment: JSON.stringify({\n    security_only_update: $('Decide Template + Lock Key').first().json.securityOnlyUpdate\n  })\n}) }}",
+        "options": {}
+      },
+      "id": "2e590a85-5018-40fa-9b3a-8f1719fa988b",
+      "name": "Start Patch Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        736
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "15wi8QLuFqDuNjQa",
+          "name": "Semaphore API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nRNOQoJxKwcuaD9i",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nRNOQoJxKwcuaD9i",
+          "cachedResultName": "PatchMon - Poll Semaphore Sub-Task"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "baseUrl": "={{ $('Global Config').first().json.SEMAPHORE_BASE_URL }}",
+            "projectId": "={{ $('Global Config').first().json.SEMAPHORE_PROJECT_ID }}",
+            "taskId": "={{ String($json.id) }}",
+            "timeoutMinutes": "={{ $('Global Config').first().json.POLL_TIMEOUT_MINUTES_PATCH }}",
+            "pollIntervalSeconds": "={{ $('Global Config').first().json.POLL_INTERVAL_SECONDS }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "baseUrl",
+              "displayName": "baseUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "projectId",
+              "displayName": "projectId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "taskId",
+              "displayName": "taskId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "timeoutMinutes",
+              "displayName": "timeoutMinutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "pollIntervalSeconds",
+              "displayName": "pollIntervalSeconds",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "f2c6016c-dcbe-4472-9462-559983158d38",
+      "name": "Poll Patch Task",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1328,
+        736
+      ],
+      "notes": "Now reads its own POLL_TIMEOUT_MINUTES_PATCH (45min default) from Global Config, separate from lookup/snapshot/tag polls -- widen if reboots + Galera rejoin waits push you close to it. (2026-07-13: split out of the old single shared POLL_TIMEOUT_MINUTES, which was capping every poll -- including real patch runs -- at 2 minutes.)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "hostname",
+              "type": "string",
+              "value": "={{ $('Decide Template + Lock Key').first().json.hostname }}",
+              "id": "85cd7dad-557a-4df6-a6d8-6f2774d4c65f"
+            },
+            {
+              "name": "matchedRule",
+              "type": "string",
+              "value": "={{ $('Decide Template + Lock Key').first().json.matchedRule }}",
+              "id": "8a2deff8-13a7-453f-928d-fafbcff4a49e"
+            },
+            {
+              "name": "failedStage",
+              "type": "string",
+              "value": "={{ $json.ansibleStatus === 'timeout' ? 'timeout' : 'task-error' }}",
+              "id": "09dbddb9-c9c7-4c7b-b225-9d45cd0cad4e"
+            },
+            {
+              "name": "logExcerpt",
+              "type": "string",
+              "value": "={{ ($json.taskOutput || '').slice(-1500) }}",
+              "id": "d09eb8ba-e4b0-4022-b70e-682eea9f3fca"
+            },
+            {
+              "name": "discordMessage",
+              "type": "string",
+              "value": "={{ (() => { const lines = ($json.taskOutput || '').split('\\n'); let ex = lines.slice(-50).join('\\n'); if (ex.length > 1500) ex = ex.slice(-1500); return `🔥 **Patch job failed** — Semaphore reported a **${$json.ansibleStatus === 'timeout' ? 'timeout' : 'task-error'}** error on **${$('Decide Template + Lock Key').first().json.hostname}** (rule: \\`${$('Decide Template + Lock Key').first().json.matchedRule}\\`) 💥\\n🔒 Scope: ${$('Decide Template + Lock Key').first().json.securityOnlyUpdate ? 'security updates only' : 'all available updates'}\\n📋 Log excerpt (last 50 lines):\\n\\`\\`\\`${ex}\\`\\`\\`\\n🛠️ Needs a look.`; })() }}",
+              "id": "4d490026-ed48-483e-8693-75509e357aca"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f9cb613c-7dea-4466-8e4e-6fecebaeb011",
+      "name": "Build Failure Alert Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2144,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "hostname",
+              "type": "string",
+              "value": "={{ $('Decide Template + Lock Key').first().json.hostname }}",
+              "id": "eb572ed6-4abf-4ba5-a81a-f6b04c024dc2"
+            },
+            {
+              "name": "matchedRule",
+              "type": "string",
+              "value": "={{ $('Decide Template + Lock Key').first().json.matchedRule }}",
+              "id": "7a150138-b022-4400-b3df-4c625d8b49eb"
+            },
+            {
+              "name": "failedStage",
+              "type": "string",
+              "value": "snapshot",
+              "id": "8549b154-c589-4d89-991c-547fe78a00dc"
+            },
+            {
+              "name": "logExcerpt",
+              "type": "string",
+              "value": "={{ ($json.output || '').slice(-1500) }}",
+              "id": "d38aba3b-5511-4d79-90e6-1e12d1345684"
+            },
+            {
+              "name": "discordMessage",
+              "type": "string",
+              "value": "={{ (() => { const lines = ($json.output || '').split('\\n'); let ex = lines.slice(-50).join('\\n'); if (ex.length > 1500) ex = ex.slice(-1500); return `🧊 **Snapshot failed** on **${$('Decide Template + Lock Key').first().json.hostname}** (rule: \\`${$('Decide Template + Lock Key').first().json.matchedRule}\\`) — patch was aborted before touching the host, nothing changed ✅🚫\\n📋 Log excerpt (last 50 lines):\\n\\`\\`\\`${ex}\\`\\`\\`\\n🛠️ Check Proxmox/storage before retrying.`; })() }}",
+              "id": "3f786a2d-e06c-4f51-a104-c065f389fa5a"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4fbc2071-0771-4631-aba2-b71c8e8e422a",
+      "name": "Snapshot Failed Alert Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1712,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Global Config').first().json.ALERT_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.discordMessage }) }}",
+        "options": {}
+      },
+      "id": "75f6131f-8711-4145-ba6f-9d4c21ddbf5e",
+      "name": "Send Discord/Telegram Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2336,
+        768
+      ],
+      "notes": "ALERT_WEBHOOK_URL can be a Discord channel webhook or, for Telegram, swap this for the Telegram node / bot API sendMessage call. Body shape shown is Discord's; adjust for Telegram."
+    },
+    {
+      "parameters": {
+        "content": "## Flow overview\n\n### 1. Webhook\nPatchMon sends the trigger to n8n (PatchMon is set up in Part 2 of the series, the webhook in Part 4).\n\n### 2. Exclude vs Security updates only\n`EXCLUDED_HOSTNAMES`: Skip entirely and silently\n`SECURITY_ONLY_GROUPS`: Security patches only (as per info from Patchmon)\n\n### 3. Resolve\nSemaphore lookup returns this host's groups, Proxmox identity, and alert-cooldown state. Semaphore is covered in Part 1 of the series with additional playbooks provided in Part 3 and Part 4.\n\n### 4. Cooldown check\nAlready alerted on this host in the last 24h, unresolved? Skip silently here, before any template/lock/snapshot/patch work happens.\n\n### 5. Decide\nPick the patch template + lock key from the group→template rule table.\n\n### 6. Security-tier check\nSecurity-only host, but this event is a general (non-security) update? Skip; patch by hand.\n\n### 7. Lock\nRun the tag/lock playbook. This runs for *every* host, Proxmox guest or not. It decides internally whether to set a Proxmox API tag or an `mkdir` marker, based on whether `proxmox_vmid` is defined. No database; the tag/marker *is* the lock.\n- Locked elsewhere: exit quietly.\n- Acquired: continue.\n\n### 8. Open Kuma maintenance window (optional)\nCovered in Part 3 of the tutorial. Before anything touches the host. Applies to every host the same way; Kuma doesn't care whether it's a Proxmox guest, only whether any of its monitors are tagged with this hostname.\n\n### 9. Snapshot\nProxmox guests only; skipped entirely for everything else.\n\n### 10. Patch\nRun the chosen template, `Limit=<hostname>`, generous poll timeout (up to 45 min; reboots need the room).\n\n### 11. Verify\nPatchMon's own still-pending count decides the outcome, 3 ways: success (0 pending), partial (ansible ok but PatchMon still sees pending packages, so Discord warns and Ansible sets a 24h cooldown tag), or failure (ansible error/timeout).\n\n### 12. Alert\nDiscord/Telegram message for whichever of the 3 outcomes hit.\n\n### 13. Close Kuma maintenance window (optional)\nSame gate as step 8; fires on every path out of step 7 onward (success, partial, failure, even a failed snapshot), so a window never gets left open.\n\n### 14. Cleanup\nRemove the tag/marker from step 7. This *is* the lock release; nothing else to clean up, there's no separate lock-store.",
+        "height": 1796,
+        "width": 760,
+        "color": 4
+      },
+      "id": "09135d64-4381-4059-8618-87518752d4e4",
+      "name": "Flow overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -4432,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Global Config').first().json.SEMAPHORE_BASE_URL }}/api/project/{{ $('Global Config').first().json.SEMAPHORE_PROJECT_ID }}/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ template_id: Number($('Global Config').first().json.SEMAPHORE_TEMPLATE_TAG_HOST), limit: $('Decide Template + Lock Key').first().json.hostname, environment: JSON.stringify({ patchmon_tag_action: 'add', patchmon_lock_group: $('Decide Template + Lock Key').first().json.lockKey }) }) }}",
+        "options": {}
+      },
+      "id": "64f842bd-09a2-46e9-84be-411569ab6a43",
+      "name": "Start Tag-Add Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1312,
+        784
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "15wi8QLuFqDuNjQa",
+          "name": "Semaphore API Token"
+        }
+      },
+      "notes": "Runs helpers/patchmon_tag_host.yml -- uses per-site proxmox_api_* from group_vars, so this works regardless of which of your 3 Proxmox clusters the host is on."
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nRNOQoJxKwcuaD9i",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nRNOQoJxKwcuaD9i",
+          "cachedResultName": "PatchMon - Poll Semaphore Sub-Task"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "baseUrl": "={{ $('Global Config').first().json.SEMAPHORE_BASE_URL }}",
+            "projectId": "={{ $('Global Config').first().json.SEMAPHORE_PROJECT_ID }}",
+            "taskId": "={{ String($json.id) }}",
+            "timeoutMinutes": "={{ $('Global Config').first().json.POLL_TIMEOUT_MINUTES_TAG }}",
+            "pollIntervalSeconds": "={{ $('Global Config').first().json.POLL_INTERVAL_SECONDS }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "baseUrl",
+              "displayName": "baseUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "projectId",
+              "displayName": "projectId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "taskId",
+              "displayName": "taskId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "timeoutMinutes",
+              "displayName": "timeoutMinutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "pollIntervalSeconds",
+              "displayName": "pollIntervalSeconds",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "83392c9d-7781-44c1-8565-4ad262ca5cb5",
+      "name": "Poll Tag-Add Task",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -1136,
+        784
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Global Config').first().json.SEMAPHORE_BASE_URL }}/api/project/{{ $('Global Config').first().json.SEMAPHORE_PROJECT_ID }}/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ template_id: Number($('Global Config').first().json.SEMAPHORE_TEMPLATE_TAG_HOST), limit: $('Decide Template + Lock Key').first().json.hostname, environment: JSON.stringify({ patchmon_tag_action: 'remove' }) }) }}",
+        "options": {}
+      },
+      "id": "0091f6aa-28a0-459b-94f3-6393d0b30903",
+      "name": "Start Tag-Remove Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3056,
+        784
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "15wi8QLuFqDuNjQa",
+          "name": "Semaphore API Token"
+        }
+      },
+      "notes": "2026-07-13: now called unconditionally from every alert/success path, since every path that reaches here already passed Lock Acquired?==true and therefore holds a lock (Proxmox tag or local dir) that needs releasing. The old 'Is Proxmox Guest? (Cleanup)' gate was removed as redundant."
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nRNOQoJxKwcuaD9i",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nRNOQoJxKwcuaD9i",
+          "cachedResultName": "PatchMon - Poll Semaphore Sub-Task"
+        },
+        "workflowInputs": {
+          "value": {
+            "baseUrl": "={{ $('Global Config').first().json.SEMAPHORE_BASE_URL }}",
+            "projectId": "={{ $('Global Config').first().json.SEMAPHORE_PROJECT_ID }}",
+            "taskId": "={{ String($json.id) }}",
+            "timeoutMinutes": "={{ $('Global Config').first().json.POLL_TIMEOUT_MINUTES_TAG }}",
+            "pollIntervalSeconds": "={{ $('Global Config').first().json.POLL_INTERVAL_SECONDS }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "78e433b6-4d68-4819-bc67-6059107ff23c",
+      "name": "Poll Tag-Remove Task",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3312,
+        784
+      ],
+      "notes": "This pair MUST run on every exit path (success, patch failure, snapshot failure, timeout) to release the lock -- Proxmox tag removal for guests, local lock-dir removal for everyone else."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parses the TAG_RESULT_JSON line(s) the patchmon_tag_host.yml playbook prints, e.g.\n// TAG_RESULT_JSON: {\"hostname\":\"mail1\",\"action\":\"add\",\"lockMethod\":\"proxmox_tag\",\"locked\":true,\"blocked_reason\":null,\"staleLockReclaimed\":false,\"tags\":[...]}\n//\n// Hardened 2026-08-06: patchmon_tag_host.yml runs with 'hosts: all', relying on Semaphore's\n// Limit option to scope execution to just the target host -- same design as patchmon_lookup.yml,\n// which we already found can silently run against the whole inventory if Limit isn't actually\n// constraining it. This now scans every TAG_RESULT_JSON line and matches on hostname instead of\n// blindly taking the first one, same pattern as Parse Group Names. Previously, if Limit ran loose\n// and another host's line appeared earlier in the raw output, this would read THAT host's lock\n// result as if it were the target's -- consistent with a case where Ansible correctly wrote the\n// tag on the target host but Lock Acquired? still evaluated false.\n//\n// Also keeps the existing quote-unescaping fix for Ansible's debug: msg: JSON-escaping behavior.\nconst targetHostname = $('Decide Template + Lock Key').first().json.hostname;\nconst text = ($input.first().json.output || '').replace(/\\\\\"/g, '\"');\nconst re = /TAG_RESULT_JSON:\\s*(\\{.*\\})/g;\nlet m;\nconst candidates = [];\nwhile ((m = re.exec(text)) !== null) {\n  try { candidates.push(JSON.parse(m[1])); } catch (e) { /* skip unparsable line */ }\n}\nlet parsed = candidates.find(c => (c.hostname || '').toLowerCase() === (targetHostname || '').toLowerCase());\nconst matchedCorrectHost = !!parsed;\nif (!parsed) parsed = candidates[0] || {};\n\nreturn [{ json: {\n  ...$('Decide Template + Lock Key').first().json,\n  locked: !!parsed.locked,\n  blockedReason: parsed.blocked_reason || null,\n  staleLockReclaimed: !!parsed.staleLockReclaimed,\n  tagResultHostCount: candidates.length,\n  tagResultMatchedCorrectHost: matchedCorrectHost\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -944,
+        784
+      ],
+      "id": "6272d50c-5be4-47d3-9f29-bf2594795644",
+      "name": "Parse Tag-Add Result"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.locked }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "15afae53-367d-45cc-895e-30b79f4e7419",
+      "name": "Lock Acquired?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -736,
+        784
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "8a589d1f-8828-4fa5-a8be-abed35381cfd",
+      "name": "Lock Busy - Exit",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -448,
+        800
+      ],
+      "notes": "Another host in this lock group is already being_patched (or this host itself already carries the tag from a prior run). Exit quietly -- PatchMon's next report cycle will re-surface this host later if still needed."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Global Config').first().json.ALERT_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: `✅ **PatchMon/Semaphore** — patch completed successfully on **${$('Decide Template + Lock Key').first().json.hostname}** 🎉\\n🔒 Scope: ${$('Decide Template + Lock Key').first().json.securityOnlyUpdate ? 'security updates only' : 'all available updates'}\\n📋 Rule matched: \\`${$('Decide Template + Lock Key').first().json.matchedRule}\\`${$('Decide Template + Lock Key').first().json.securityOnlyUpdate && ($json.otherPendingCount || 0) > 0 ? `\\nℹ️ ${$json.otherPendingCount} non-security update(s) still pending — expected, out of scope for this run.` : ''}\\n🛠️ No action needed.` }) }}",
+        "options": {}
+      },
+      "id": "4e1b12ed-9b4a-40c2-8b2d-797b0d21c508",
+      "name": "Send Discord/Telegram Success Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2288,
+        480
+      ],
+      "notes": "ALERT_WEBHOOK_URL can be a Discord channel webhook or, for Telegram, swap this for the Telegram node / bot API sendMessage call. Body shape shown is Discord's; adjust for Telegram."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.inAlertCooldown }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "757d12e6-e2c3-4955-b761-df1034fd232d",
+      "name": "In Alert Cooldown?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1888,
+        784
+      ],
+      "notes": "Checked at the very start, before any snapshot/patch/lock work happens. Set by patch_*.yml when a patch run didn't fully resolve pending updates - cleared automatically on the next full success."
+    },
+    {
+      "parameters": {},
+      "id": "17d7698e-0eed-457a-b507-86df64cf4aef",
+      "name": "Skip - In Alert Cooldown",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -1664,
+        672
+      ],
+      "notes": "Host was already alerted on within the last 24h and hasn't fully resolved yet. Skip silently -- no repeat Discord alert, no repeat snapshot/patch attempt -- until the cooldown tag expires or a human clears it in Proxmox."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parses PATCH_VERIFY_JSON from the patch playbook's output, e.g.\n// PATCH_VERIFY_JSON: {\"hostname\":\"web2\",\"still_pending_count\":2,\"still_pending_packages\":[\"nginx\",\"libssl3\"],\"other_pending_count\":9,\"other_pending_packages\":[...],\"security_only_update\":true,\"agent_present\":true}\n//\n// Hardened 2026-08-06: same hostname-matching fix as Parse Tag-Add Result / Parse Group Names --\n// patch_debian_*.yml plays scope to a group (debian_hosts/nginx/galera) and rely on Semaphore's\n// Limit to narrow further to one host. If Limit isn't constraining the run, other hosts in that\n// group could emit their own PATCH_VERIFY_JSON lines in the same output -- taking the first match\n// blindly risked reading a different host's verification result. Now scans all lines and matches\n// on hostname, same pattern used elsewhere.\n//\n// 2026-07-13: quote-unescaping fix retained -- was silently defaulting stillPendingCount to -1\n// (agent_present:false path) whenever JSON.parse choked on Ansible's escaped quotes.\n//\n// 2026-08-13: still_pending_count/still_pending_packages are now scoped by the playbook itself --\n// when security_only_update was true for this run, they only reflect still-pending SECURITY\n// packages (the actual job this run was responsible for), not the full backlog. otherPendingCount/\n// otherPendingPackages carry whatever's still pending OUTSIDE that scope (e.g. non-security\n// updates on a security-only run), purely for informational messaging -- Patch Outcome's\n// stillPendingCount > 0 check is untouched and now judges success/partial against the right scope.\nconst targetHostname = $('Decide Template + Lock Key').first().json.hostname;\nconst text = ($input.first().json.output || '').replace(/\\\\\"/g, '\"');\nconst re = /PATCH_VERIFY_JSON:\\s*(\\{.*\\})/g;\nlet m;\nconst candidates = [];\nwhile ((m = re.exec(text)) !== null) {\n  try { candidates.push(JSON.parse(m[1])); } catch (e) { /* skip unparsable line */ }\n}\nlet parsed = candidates.find(c => (c.hostname || '').toLowerCase() === (targetHostname || '').toLowerCase());\nconst matchedCorrectHost = !!parsed;\nif (!parsed) parsed = candidates[0] || {};\n\nreturn [{ json: {\n  ...$('Decide Template + Lock Key').first().json,\n  ansibleStatus: $input.first().json.status,\n  taskOutput: text,\n  stillPendingCount: (parsed.still_pending_count !== undefined ? parsed.still_pending_count : -1),\n  stillPendingPackages: parsed.still_pending_packages || [],\n  otherPendingCount: parsed.other_pending_count || 0,\n  otherPendingPackages: parsed.other_pending_packages || [],\n  agentPresent: !!parsed.agent_present,\n  patchResultHostCount: candidates.length,\n  patchResultMatchedCorrectHost: matchedCorrectHost\n} }];\n"
+      },
+      "id": "45a07e9c-7fa3-4494-a8c1-18f23cd67f5b",
+      "name": "Parse Patch Verify Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1648,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "s1",
+                    "leftValue": "={{ $json.ansibleStatus === 'success' && ($json.stillPendingCount <= 0 || $json.stillPendingCount === -1) }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "success"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "s2",
+                    "leftValue": "={{ $json.ansibleStatus === 'success' && $json.stillPendingCount > 0 }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "partial"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "1d7b1561-bb71-4bb5-94b3-56776705088f",
+      "name": "Patch Outcome",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1872,
+        720
+      ],
+      "notes": "3-way split: success (ansible ok + verified clear), partial (ansible ok but PatchMon still sees pending packages), failure (fallback -- covers ansible error/timeout)."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "hostname",
+              "type": "string",
+              "value": "={{ $('Decide Template + Lock Key').first().json.hostname }}"
+            },
+            {
+              "id": "a2",
+              "name": "matchedRule",
+              "type": "string",
+              "value": "={{ $('Decide Template + Lock Key').first().json.matchedRule }}"
+            },
+            {
+              "id": "a3",
+              "name": "failedStage",
+              "type": "string",
+              "value": "partial"
+            },
+            {
+              "id": "a4",
+              "name": "discordMessage",
+              "type": "string",
+              "value": "={{ `⚠️ **Host patched, but not fully resolved** — PatchMon still flags outstanding packages on **${$('Decide Template + Lock Key').first().json.hostname}** 🩹\\n🔒 Scope: ${$('Decide Template + Lock Key').first().json.securityOnlyUpdate ? 'security updates only' : 'all available updates'}\\n📦 Didn't update automatically (in scope):\\n${($json.stillPendingPackages || []).map(p => `- ${p}`).join('\\n') || '(package list unavailable)'}${$('Decide Template + Lock Key').first().json.securityOnlyUpdate && ($json.otherPendingCount || 0) > 0 ? `\\nℹ️ Also ${$json.otherPendingCount} non-security update(s) pending — expected, out of scope for this run.` : ''}\\n🔧 Manual intervention required.\\n⏳ Cooldown: won't re-alert on this host for 24h unless it fully resolves first.` }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a552ad38-b143-43f4-b301-2dba3908629f",
+      "name": "Build Partial Alert Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2128,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ ($('Global Config').first().json.EXCLUDED_HOSTNAMES || '').split(/[,\\n]/).map(h => h.trim().toLowerCase()).filter(h => h.length > 0).includes(($('Normalize Trigger Payload').first().json.hostname || '').toLowerCase()) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "04762cf8-c5dd-4f7b-99b4-cd08d47ff00e",
+      "name": "Is Host Excluded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -2960,
+        912
+      ],
+      "notes": "Gates everything downstream on Global Config's EXCLUDED_HOSTNAMES list (accepts commas and/or newlines as separators). Checked before the Semaphore lookup even fires, so excluded hosts (e.g. Proxmox host servers) never touch this pipeline at all - no lookup, no snapshot, no patch, no reboot. Patch those manually via the Proxmox UI."
+    },
+    {
+      "parameters": {},
+      "id": "2761fcca-5ec6-4d52-bccb-8b5115f8ee97",
+      "name": "Skip - Host Excluded",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -2720,
+        768
+      ],
+      "notes": "Host is on the EXCLUDED_HOSTNAMES list in Global Config. Exit quietly - no Discord alert, no lookup, no patch attempt. Patch this host manually (Proxmox UI, or SSH + apt directly)."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "SEMAPHORE_BASE_URL",
+              "type": "string",
+              "value": "http://1.2.3.4:3000",
+              "id": "011a6260-9736-42d6-8a7c-1f07e9a1afc2"
+            },
+            {
+              "name": "SEMAPHORE_PROJECT_ID",
+              "type": "string",
+              "value": "1",
+              "id": "de9816e4-b7c9-4f65-956f-dce15eecd2a0"
+            },
+            {
+              "name": "SEMAPHORE_LOOKUP_TEMPLATE_ID",
+              "type": "string",
+              "value": "11",
+              "id": "2f28bb5e-23dc-4b31-95fe-d9bbb091b09f"
+            },
+            {
+              "name": "SEMAPHORE_TEMPLATE_SNAPSHOT",
+              "type": "string",
+              "value": "3",
+              "id": "5e7d6642-0adc-434c-911a-26813f96e0b6"
+            },
+            {
+              "name": "SEMAPHORE_TEMPLATE_GALERA",
+              "type": "string",
+              "value": "9",
+              "id": "3de19faa-da3f-45d5-b835-8f88c0080193"
+            },
+            {
+              "name": "SEMAPHORE_TEMPLATE_NGINX",
+              "type": "string",
+              "value": "8",
+              "id": "bad99b91-1d96-49fe-839b-8e8fed17b38e"
+            },
+            {
+              "name": "SEMAPHORE_TEMPLATE_DEBIAN",
+              "type": "string",
+              "value": "2",
+              "id": "ac8a8909-4f8c-4616-9440-d4320573b139"
+            },
+            {
+              "name": "SEMAPHORE_TEMPLATE_TAG_HOST",
+              "type": "string",
+              "value": "12",
+              "id": "a871bea5-a9dd-428f-b372-9b3f11795bac"
+            },
+            {
+              "name": "ALERT_WEBHOOK_URL",
+              "type": "string",
+              "value": "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN",
+              "id": "6da54d9b-5f61-49ca-9cb3-d93bc9f57aa7"
+            },
+            {
+              "name": "POLL_TIMEOUT_MINUTES_LOOKUP",
+              "type": "number",
+              "value": 10,
+              "id": "poll-timeout-lookup-01"
+            },
+            {
+              "name": "POLL_TIMEOUT_MINUTES_TAG",
+              "type": "number",
+              "value": 10,
+              "id": "poll-timeout-tag-01"
+            },
+            {
+              "name": "POLL_TIMEOUT_MINUTES_SNAPSHOT",
+              "type": "number",
+              "value": 15,
+              "id": "poll-timeout-snapshot-01"
+            },
+            {
+              "name": "POLL_TIMEOUT_MINUTES_PATCH",
+              "type": "number",
+              "value": 30,
+              "id": "poll-timeout-patch-01"
+            },
+            {
+              "name": "POLL_INTERVAL_SECONDS",
+              "type": "number",
+              "value": 15,
+              "id": "poll-interval-seconds-01"
+            },
+            {
+              "name": "EXCLUDED_HOSTNAMES",
+              "type": "string",
+              "value": "proxmox1,proxmox2,proxmox3,semaphore",
+              "id": "excluded-hostnames-01"
+            },
+            {
+              "name": "SECURITY_ONLY_GROUPS",
+              "type": "string",
+              "value": "",
+              "id": "security-only-groups-01"
+            },
+            {
+              "name": "SEMAPHORE_TEMPLATE_UPTIMEKUMA_MAINTENANCE",
+              "type": "string",
+              "value": "14",
+              "id": "uptimekuma-template-01"
+            },
+            {
+              "name": "UPTIMEKUMA_DURATION_BUFFER_MINUTES",
+              "type": "number",
+              "value": 10,
+              "id": "uptimekuma-buffer-01"
+            },
+            {
+              "name": "UPTIMEKUMA_INSTANCES",
+              "type": "string",
+              "value": "[{\"name\": \"uptimekuma1\", \"url\": \"http://1.2.3.4:3001\"}, {\"name\": \"uptimekuma2\", \"url\": \"http://3.4.5.6:3001\"}, {\"name\": \"uptimekuma3\", \"url\": \"http://6.7.8.9:3001\"}]",
+              "id": "uptimekuma-instances-01"
+            },
+            {
+              "id": "4785dd9b-173b-4a31-b83a-4ff78b8b79bc",
+              "name": "UPTIMEKUMA_MAINTENANCE_ENABLED",
+              "value": true,
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "849b3c87-13f3-49ca-a0f4-fc500451e766",
+      "name": "Global Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -3136,
+        912
+      ],
+      "notes": "Community Edition has no native Variables/Environments feature - this node is the substitute. Edit the values above directly. Keep secrets OUT of here (they live in Credentials instead)\n\nEXCLUDED_HOSTNAMES - comma and/or newline separated, case-insensitive, e.g. 'proxmox1,proxmox2,proxmox3'. \n\nIntended for Proxmox host servers themselves (the hypervisors) or anything else you want to patch by hand only.\n\nSECURITY_ONLY_GROUPS - comma/newline-separated Ansible group names (matched against each host's 'groups' from the lookup, case-insensitive). \n\nHosts in one of these groups still get automated, but ONLY on host_security_updates_exceeded webhooks - a host_pending_updates_exceeded (general) webhook for them is skipped silently, patch manually instead. \n\nUPTIMEKUMA_MAINTENANCE_ENABLED (off by default -- flip to 'true' only once the Semaphore template + vaulted credentials + monitor tags are all in place), \n\nSEMAPHORE_TEMPLATE_UPTIMEKUMA_MAINTENANCE (blank until you create that template), \n\nUPTIMEKUMA_DURATION_BUFFER_MINUTES (added on top of POLL_TIMEOUT_MINUTES_PATCH for the Kuma-side auto-expiry safety net).\n\nUPTIMEKUMA_INSTANCES (the non-secret {name,url} list - this is the one place you manage which Kuma servers get called; credentials for each instance live separately in vaulted group_vars. "
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ (($('Global Config').first().json.SECURITY_ONLY_GROUPS || '').split(/[,\\n]/).map(g => g.trim().toLowerCase()).filter(g => g.length > 0)).some(g => ($json.groups || []).map(x => x.toLowerCase()).includes(g)) && $json.eventType !== 'host_security_updates_exceeded' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7418c012-1b5a-4308-9eca-26d8d278f207",
+      "name": "Standard Update on Security-Only Host?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1488,
+        928
+      ],
+      "notes": "2026-07-13: gates on Global Config's SECURITY_ONLY_GROUPS. True means: this host is in one of those groups AND this webhook is the general host_pending_updates_exceeded event (not the security one) -- skip silently, patch manually. A host_security_updates_exceeded webhook for the same host still proceeds normally."
+    },
+    {
+      "parameters": {},
+      "id": "24273db4-2016-455a-a012-913c6a3d287f",
+      "name": "Skip - Standard Update on Restricted Host",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -1488,
+        1120
+      ],
+      "notes": "This host is security-updates-only (Global Config SECURITY_ONLY_GROUPS) and this webhook was a general pending-updates alert, not security. Exit quietly -- patch manually instead."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Global Config').first().json.SEMAPHORE_BASE_URL }}/api/project/{{ $('Global Config').first().json.SEMAPHORE_PROJECT_ID }}/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ template_id: Number($('Global Config').first().json.SEMAPHORE_TEMPLATE_UPTIMEKUMA_MAINTENANCE), limit: $('Decide Template + Lock Key').first().json.hostname, environment: JSON.stringify({ uptimekuma_action: 'start', uptimekuma_duration_minutes: Number($('Global Config').first().json.POLL_TIMEOUT_MINUTES_PATCH) + Number($('Global Config').first().json.UPTIMEKUMA_DURATION_BUFFER_MINUTES || 10), uptimekuma_instances: JSON.parse($('Global Config').first().json.UPTIMEKUMA_INSTANCES || '[]') }) }) }}",
+        "options": {}
+      },
+      "id": "beb98f95-092f-466e-812c-ca9740e2f56b",
+      "name": "Start Maintenance-Start Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "15wi8QLuFqDuNjQa",
+          "name": "Semaphore API Token"
+        }
+      },
+      "notes": "Runs helpers/uptimekuma_maintenance.yml with uptimekuma_action=start. Duration = POLL_TIMEOUT_MINUTES_PATCH + UPTIMEKUMA_DURATION_BUFFER_MINUTES, so the Kuma-side window can never expire before your own patch-timeout budget does -- and it's the dead-man's-switch if this whole run crashes before reaching the Stop task below."
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nRNOQoJxKwcuaD9i",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nRNOQoJxKwcuaD9i",
+          "cachedResultName": "PatchMon - Poll Semaphore Sub-Task"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "baseUrl": "={{ $('Global Config').first().json.SEMAPHORE_BASE_URL }}",
+            "projectId": "={{ $('Global Config').first().json.SEMAPHORE_PROJECT_ID }}",
+            "taskId": "={{ String($json.id) }}",
+            "timeoutMinutes": "={{ $('Global Config').first().json.POLL_TIMEOUT_MINUTES_TAG }}",
+            "pollIntervalSeconds": "={{ $('Global Config').first().json.POLL_INTERVAL_SECONDS }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "baseUrl",
+              "displayName": "baseUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "projectId",
+              "displayName": "projectId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "taskId",
+              "displayName": "taskId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "timeoutMinutes",
+              "displayName": "timeoutMinutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "pollIntervalSeconds",
+              "displayName": "pollIntervalSeconds",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "aa2aa52c-372f-4aa9-a432-462c038729f3",
+      "name": "Poll Maintenance-Start Task",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        368,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parses the MAINTENANCE_RESULT_JSON line the uptimekuma_maintenance.yml playbook\n// prints, e.g.\n// MAINTENANCE_RESULT_JSON: {\"hostname\":\"web1\",\"action\":\"start\",\"kumaEnabled\":true,\n//   \"instancesConfigured\":3,\"instancesAttempted\":3,\"instancesOk\":3,\n//   \"monitorsMatchedTotal\":4,\"results\":[...]}\n//\n// Best-effort by design: this node NEVER blocks or redirects the flow. Whatever\n// happened here (Kuma reachable or not, monitors tagged or not), we still go on\n// to snapshot/patch the host below -- worst case if this failed is one spurious\n// \"still down\" alert during the maintenance window that should have covered it,\n// which is a much better failure mode than blocking a real patch run on your\n// monitoring stack being flaky.\n//\n// Same hostname-matching + quote-unescaping pattern as Parse Tag-Add Result /\n// Parse Patch Verify Result, since this Semaphore task template also runs with\n// 'hosts: all' + Limit for scoping.\nconst targetHostname = $('Decide Template + Lock Key').first().json.hostname;\nconst text = ($input.first().json.output || '').replace(/\\\\\"/g, '\"');\nconst re = /MAINTENANCE_RESULT_JSON:\\s*(\\{.*\\})/g;\nlet m;\nconst candidates = [];\nwhile ((m = re.exec(text)) !== null) {\n  try { candidates.push(JSON.parse(m[1])); } catch (e) { /* skip unparsable line */ }\n}\nlet parsed = candidates.find(c => (c.hostname || '').toLowerCase() === (targetHostname || '').toLowerCase());\nif (!parsed) parsed = candidates[0] || {};\n\nreturn [{ json: {\n  ...$('Decide Template + Lock Key').first().json,\n  uptimeKumaEnabled: !!parsed.kumaEnabled,\n  uptimeKumaInstancesConfigured: parsed.instancesConfigured || 0,\n  uptimeKumaInstancesOk: parsed.instancesOk || 0,\n  uptimeKumaMonitorsMatched: parsed.monitorsMatchedTotal || 0,\n  uptimeKumaResults: parsed.results || []\n} }];\n"
+      },
+      "id": "85958b9d-ebae-44db-8f4c-5b027c3de01c",
+      "name": "Parse Maintenance-Start Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        0
+      ],
+      "notes": "Re-spreads Decide Template + Lock Key's full context (hostname, isProxmoxGuest, matchedRule, lockKey, semaphoreTemplateId, groups, ...) same as Parse Tag-Add Result does -- required so 'Is Proxmox Guest?' right after this still has isProxmoxGuest to read."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Global Config').first().json.SEMAPHORE_BASE_URL }}/api/project/{{ $('Global Config').first().json.SEMAPHORE_PROJECT_ID }}/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ template_id: Number($('Global Config').first().json.SEMAPHORE_TEMPLATE_UPTIMEKUMA_MAINTENANCE), limit: $('Decide Template + Lock Key').first().json.hostname, environment: JSON.stringify({ uptimekuma_action: 'stop', uptimekuma_instances: JSON.parse($('Global Config').first().json.UPTIMEKUMA_INSTANCES || '[]') }) }) }}",
+        "options": {}
+      },
+      "id": "db27e2de-6200-4e4e-b43e-2c7c9f67855d",
+      "name": "Start Maintenance-Stop Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2688,
+        480
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "15wi8QLuFqDuNjQa",
+          "name": "Semaphore API Token"
+        }
+      },
+      "notes": "Runs helpers/uptimekuma_maintenance.yml with uptimekuma_action=stop -- deletes the maintenance window on every instance where one exists for this host. Fires unconditionally on every exit path (success/partial/failure), same as Start Tag-Remove Task right after it. The duration-based auto-expiry on the Start side is the failsafe if this never runs; this is the normal-path cleanup."
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nRNOQoJxKwcuaD9i",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nRNOQoJxKwcuaD9i",
+          "cachedResultName": "PatchMon - Poll Semaphore Sub-Task"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "baseUrl": "={{ $('Global Config').first().json.SEMAPHORE_BASE_URL }}",
+            "projectId": "={{ $('Global Config').first().json.SEMAPHORE_PROJECT_ID }}",
+            "taskId": "={{ String($json.id) }}",
+            "timeoutMinutes": "={{ $('Global Config').first().json.POLL_TIMEOUT_MINUTES_TAG }}",
+            "pollIntervalSeconds": "={{ $('Global Config').first().json.POLL_INTERVAL_SECONDS }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "baseUrl",
+              "displayName": "baseUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "projectId",
+              "displayName": "projectId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "taskId",
+              "displayName": "taskId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "timeoutMinutes",
+              "displayName": "timeoutMinutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "pollIntervalSeconds",
+              "displayName": "pollIntervalSeconds",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "ff6c05ee-dba6-4d8e-a78d-feb72748439e",
+      "name": "Poll Maintenance-Stop Task",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2896,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Same parsing as Parse Maintenance-Start Result, for the 'stop' call. Logged\n// for visibility only -- nothing downstream branches on this, Start Tag-Remove\n// Task (right after) already gets everything it needs from named-node references,\n// not from this node's output shape.\nconst targetHostname = $('Decide Template + Lock Key').first().json.hostname;\nconst text = ($input.first().json.output || '').replace(/\\\\\"/g, '\"');\nconst re = /MAINTENANCE_RESULT_JSON:\\s*(\\{.*\\})/g;\nlet m;\nconst candidates = [];\nwhile ((m = re.exec(text)) !== null) {\n  try { candidates.push(JSON.parse(m[1])); } catch (e) { /* skip unparsable line */ }\n}\nlet parsed = candidates.find(c => (c.hostname || '').toLowerCase() === (targetHostname || '').toLowerCase());\nif (!parsed) parsed = candidates[0] || {};\n\nreturn [{ json: {\n  ...$('Decide Template + Lock Key').first().json,\n  uptimeKumaStopEnabled: !!parsed.kumaEnabled,\n  uptimeKumaStopInstancesOk: parsed.instancesOk || 0\n} }];\n"
+      },
+      "id": "767998fd-d03e-4147-935d-857d5d6cb674",
+      "name": "Parse Maintenance-Stop Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3104,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Before running:\n\nCommunity Edition has no native Variables/Environments panel (paid-plan feature) -- config lives in the **Global Config** node instead. Fill in your values. If your Semaphore instance is not allowing parallel tasks, then if you have more hosts to be patched, they will be queued and this will impact the polling times - **ensure you give all jobs generous timeout**.\n\n**Credentials to create (Credentials store, not Global Config):** Semaphore API Token (HTTP Bearer Auth).\n\n**Semaphore Task Templates needed:** PatchMon Inventory Lookup (patchmon_lookup.yml), plus existing Snapshot/Debian/Nginx/Galera templates from Part 1.\n\n**Import order:** import the sub-workflow \"PatchMon - Poll Semaphore Sub-Task\" FIRST, then this one. Open each \"Poll ... Task\" Execute Workflow node here and pick it from the list (workflowId cannot be pre-wired across separate imports). There are several tiles to check this for (whenver the sub-workflow is called).",
+        "height": 440,
+        "width": 900
+      },
+      "id": "c85e254c-01a9-4a1e-94d7-1338038fbc17",
+      "name": "Setup checklist",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -3264,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ (String($('Global Config').first().json.UPTIMEKUMA_MAINTENANCE_ENABLED || '')).toLowerCase() === 'true' && (() => { try { return JSON.parse($('Global Config').first().json.UPTIMEKUMA_INSTANCES || '[]').length > 0; } catch (e) { return false; } })() && !!(($('Global Config').first().json.SEMAPHORE_TEMPLATE_UPTIMEKUMA_MAINTENANCE || '').trim()) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "3f39d970-2f30-422d-9807-105fa4ccc55e",
+      "name": "Kuma Maintenance Enabled? (Stop)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2544,
+        768
+      ],
+      "notes": "OPTIONAL FEATURE, OFF BY DEFAULT. True only when Global Config's UPTIMEKUMA_MAINTENANCE_ENABLED='true' AND UPTIMEKUMA_INSTANCES has at least one entry AND SEMAPHORE_TEMPLATE_UPTIMEKUMA_MAINTENANCE is set. Until you set all three, this always routes 'false' -- patching behaves exactly as it did before this feature existed."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ (String($('Global Config').first().json.UPTIMEKUMA_MAINTENANCE_ENABLED || '')).toLowerCase() === 'true' && (() => { try { return JSON.parse($('Global Config').first().json.UPTIMEKUMA_INSTANCES || '[]').length > 0; } catch (e) { return false; } })() && !!(($('Global Config').first().json.SEMAPHORE_TEMPLATE_UPTIMEKUMA_MAINTENANCE || '').trim()) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "c11b1a27-41a7-4c8d-8e84-2e1759564ab6",
+      "name": "Kuma Maintenance Enabled? (Start)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -432,
+        560
+      ],
+      "notes": "OPTIONAL FEATURE, OFF BY DEFAULT. True only when Global Config's UPTIMEKUMA_MAINTENANCE_ENABLED='true' AND UPTIMEKUMA_INSTANCES has at least one entry AND SEMAPHORE_TEMPLATE_UPTIMEKUMA_MAINTENANCE is set. Until you set all three, this always routes 'false' -- patching behaves exactly as it did before this feature existed."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.lookupStatus }}",
+              "rightValue": "success",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.lookupMatchedCorrectHost }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "83f61597-6ed0-4f17-800e-37defaa17c94",
+      "name": "Lookup Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -2144,
+        912
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "hostname",
+              "type": "string",
+              "value": "={{ $json.hostname }}",
+              "id": "lookup-fail-hostname-01"
+            },
+            {
+              "name": "failedStage",
+              "type": "string",
+              "value": "lookup",
+              "id": "lookup-fail-stage-01"
+            },
+            {
+              "name": "discordMessage",
+              "type": "string",
+              "value": "={{ `⚠️ **PatchMon lookup failed/timed out** for **${$json.hostname}** — status: \\`${$json.lookupStatus}\\`, hosts matched: ${$json.lookupHostCount}. Host was **not patched** (stopped before lock/tag-add, nothing touched ✅🚫). Likely a slow Semaphore queue under load — re-trigger from PatchMon once the queue clears, or check task ${$json.hostname} manually in Semaphore.` }}",
+              "id": "lookup-fail-msg-01"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a36229d5-f122-424b-ad6a-11ead46e70dd",
+      "name": "Lookup Failed Alert Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1920,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Global Config').first().json.ALERT_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.discordMessage }) }}",
+        "options": {}
+      },
+      "id": "97d59591-be94-4632-b11e-09083284242c",
+      "name": "Send Lookup Failure Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1712,
+        1280
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "cea32dcd-11d8-404f-a7ca-5ec320d7e2bc",
+      "name": "Lookup failed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -1488,
+        1280
+      ],
+      "notes": "Host is on the EXCLUDED_HOSTNAMES list in Global Config. Exit quietly -- no Discord alert, no lookup, no patch attempt. Patch this host manually (Proxmox UI, or SSH + apt directly)."
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "PatchMon Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Trigger Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Trigger Payload": {
+      "main": [
+        [
+          {
+            "node": "Global Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Semaphore Lookup Task": {
+      "main": [
+        [
+          {
+            "node": "Poll Lookup Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll Lookup Task": {
+      "main": [
+        [
+          {
+            "node": "Parse Group Names",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Group Names": {
+      "main": [
+        [
+          {
+            "node": "Lookup Succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide Template + Lock Key": {
+      "main": [
+        [
+          {
+            "node": "Standard Update on Security-Only Host?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Proxmox Guest?": {
+      "main": [
+        [
+          {
+            "node": "Start Snapshot Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Start Patch Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Snapshot Task": {
+      "main": [
+        [
+          {
+            "node": "Poll Snapshot Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll Snapshot Task": {
+      "main": [
+        [
+          {
+            "node": "Snapshot Succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Snapshot Succeeded?": {
+      "main": [
+        [
+          {
+            "node": "Start Patch Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Snapshot Failed Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Patch Task": {
+      "main": [
+        [
+          {
+            "node": "Poll Patch Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll Patch Task": {
+      "main": [
+        [
+          {
+            "node": "Parse Patch Verify Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Failure Alert Context": {
+      "main": [
+        [
+          {
+            "node": "Send Discord/Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Snapshot Failed Alert Context": {
+      "main": [
+        [
+          {
+            "node": "Send Discord/Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Discord/Telegram Alert": {
+      "main": [
+        [
+          {
+            "node": "Kuma Maintenance Enabled? (Stop)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Tag-Add Task": {
+      "main": [
+        [
+          {
+            "node": "Poll Tag-Add Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll Tag-Add Task": {
+      "main": [
+        [
+          {
+            "node": "Parse Tag-Add Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Tag-Remove Task": {
+      "main": [
+        [
+          {
+            "node": "Poll Tag-Remove Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Tag-Add Result": {
+      "main": [
+        [
+          {
+            "node": "Lock Acquired?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lock Acquired?": {
+      "main": [
+        [
+          {
+            "node": "Kuma Maintenance Enabled? (Start)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lock Busy - Exit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Discord/Telegram Success Message": {
+      "main": [
+        [
+          {
+            "node": "Kuma Maintenance Enabled? (Stop)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In Alert Cooldown?": {
+      "main": [
+        [
+          {
+            "node": "Skip - In Alert Cooldown",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Decide Template + Lock Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Patch Verify Result": {
+      "main": [
+        [
+          {
+            "node": "Patch Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Patch Outcome": {
+      "main": [
+        [
+          {
+            "node": "Send Discord/Telegram Success Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Partial Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failure Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Partial Alert Context": {
+      "main": [
+        [
+          {
+            "node": "Send Discord/Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Host Excluded?": {
+      "main": [
+        [
+          {
+            "node": "Skip - Host Excluded",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Start Semaphore Lookup Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Standard Update on Security-Only Host?": {
+      "main": [
+        [
+          {
+            "node": "Skip - Standard Update on Restricted Host",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Start Tag-Add Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Global Config": {
+      "main": [
+        [
+          {
+            "node": "Is Host Excluded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Maintenance-Start Task": {
+      "main": [
+        [
+          {
+            "node": "Poll Maintenance-Start Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll Maintenance-Start Task": {
+      "main": [
+        [
+          {
+            "node": "Parse Maintenance-Start Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Maintenance-Start Result": {
+      "main": [
+        [
+          {
+            "node": "Is Proxmox Guest?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Maintenance-Stop Task": {
+      "main": [
+        [
+          {
+            "node": "Poll Maintenance-Stop Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll Maintenance-Stop Task": {
+      "main": [
+        [
+          {
+            "node": "Parse Maintenance-Stop Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Maintenance-Stop Result": {
+      "main": [
+        [
+          {
+            "node": "Start Tag-Remove Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kuma Maintenance Enabled? (Stop)": {
+      "main": [
+        [
+          {
+            "node": "Start Maintenance-Stop Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Start Tag-Remove Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kuma Maintenance Enabled? (Start)": {
+      "main": [
+        [
+          {
+            "node": "Start Maintenance-Start Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Proxmox Guest?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Failed Alert Context": {
+      "main": [
+        [
+          {
+            "node": "Send Lookup Failure Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Succeeded?": {
+      "main": [
+        [
+          {
+            "node": "In Alert Cooldown?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lookup Failed Alert Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Lookup Failure Alert": {
+      "main": [
+        [
+          {
+            "node": "Lookup failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "4dcd93ab-a726-468a-9261-a00838066248",
+  "meta": {
+    "instanceId": "b3677e486e51177074d394fbc348097b508081ffc93a7fbb3c3a84f570c5ec3e"
+  },
+  "nodeGroups": [],
+  "id": "HoShkXlXdduTytO1",
+  "tags": []
+}
