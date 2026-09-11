@@ -1,0 +1,18 @@
+---
+- name: Patch Debian-based Systems
+  hosts: debian_hosts
+  become: true # Elevate permissions (execute with sudo)
+  serial: 1 # Run one host a time
+
+  tasks:
+    - name: Update apt cache (capture repo errors clearly, auto-fix known Sury key issues)
+      ansible.builtin.include_tasks: apt_cache_update_tasks.yml
+
+    - name: Upgrade apt packages (full dist-upgrade, or security-only if requested)
+      ansible.builtin.include_tasks: security_only_patch.yml
+
+    - name: Reboot if needed (kernel/uptime), with a pre-reboot heads-up notification
+      ansible.builtin.include_tasks: reboot_if_needed_tasks.yml
+
+    - name: Verify patch results with PatchMon and update the Proxmox alert-cooldown tag
+      ansible.builtin.include_tasks: patchmon_verify_and_proxmox_tag_tasks.yml
