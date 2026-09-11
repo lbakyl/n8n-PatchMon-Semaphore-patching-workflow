@@ -1,0 +1,32 @@
+---
+- name: Safely patch Nginx Web Servers (Rolling Update)
+  hosts: nginx
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Register known apt-cache issue fixes for this host group (PHP-FPM via Sury)
+      ansible.builtin.set_fact:
+        apt_cache_known_issue_fix_tasks_files:
+          - sury_php_apt_cache_fix_tasks.yml
+
+    - name: Update apt cache (capture repo errors clearly, auto-fix known repo issues)
+      ansible.builtin.include_tasks: apt_cache_update_tasks.yml
+
+    - name: Upgrade apt packages (full dist-upgrade, or security-only if requested)
+      ansible.builtin.include_tasks: security_only_patch.yml
+
+    - name: Reboot if needed (kernel/uptime), with a pre-reboot heads-up notification
+      ansible.builtin.include_tasks: reboot_if_needed_tasks.yml
+
+    - name: Wait for Nginx to be serving traffic (HTTP 200)
+      ansible.builtin.uri:
+        url: http://localhost:8081 # Modify to match the port on which nginx is listening.
+        status_code: 200
+      register: nginx_status
+      until: nginx_status.status == 200
+      retries: 20
+      delay: 15
+
+    - name: Verify patch results with PatchMon and update the Proxmox alert-cooldown tag
+      ansible.builtin.include_tasks: patchmon_verify_and_proxmox_tag_tasks.yml
