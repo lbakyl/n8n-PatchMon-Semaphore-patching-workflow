@@ -1,0 +1,33 @@
+---
+# Known-issue auto-fix, plugged into apt_cache_update_tasks.yml's rescue hook. Only relevant to
+# host groups that pull PHP packages from Sury's apt repo (php-fpm hosts, e.g. the nginx group)
+
+- name: Auto-fix and retry if this looks like a Sury PHP repo signing-key issue
+  # Catches both EXPKEYSIG (expired key) and NO_PUBKEY (key missing/never trusted locally)
+  when: >-
+    ('EXPKEYSIG' in (apt_update_raw.stderr | default(''))
+     or 'NO_PUBKEY' in (apt_update_raw.stderr | default('')))
+    and 'sury.org' in (apt_update_raw.stderr | default('') | lower)        
+  block:
+    - name: Apply the Sury key fix
+      ansible.builtin.include_tasks: sury_php_key_fix_tasks.yml
+
+    - name: Retry apt-get update after the key fix
+      # Registers into apt_update_retry rather than apt_update_raw on purpose.
+      ansible.builtin.command: apt-get update
+      register: apt_update_retry
+      changed_when: false
+      failed_when: false
+
+    - name: Show the retry output
+      ansible.builtin.debug:
+        msg: |
+          apt-get update (retry) rc={{ apt_update_retry.rc }}
+          --- stdout ---
+          {{ apt_update_retry.stdout }}
+          --- stderr ---
+          {{ apt_update_retry.stderr }}                    
+
+    - name: Use the retry result as the canonical apt-get result
+      ansible.builtin.set_fact:
+        apt_update_raw: "{{ apt_update_retry }}"
