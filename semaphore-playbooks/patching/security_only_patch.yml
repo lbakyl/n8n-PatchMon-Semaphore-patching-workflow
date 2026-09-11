@@ -1,0 +1,72 @@
+---
+# Included from patch_debian_*.yml in place of a plain 'apt: upgrade: dist' task.
+# Pass security_only_update: true (from n8n's Start Patch Task extra vars) for hosts
+# in SECURITY_ONLY_GROUPS; defaults to false (full dist-upgrade) for everyone else.
+#
+# Deliberately skips autoremove/autoclean in the security-only branch, as those are
+# safe on a full dist-upgrade but could pull in unrelated package removals when the
+# whole point is staying narrowly scoped to security patches.
+
+- name: Check whether patchmon-agent is installed (needed to identify security-only packages)
+  ansible.builtin.command: which patchmon-agent
+  register: _security_patchmon_agent_present
+  changed_when: false
+  failed_when: false
+  when: security_only_update | default(false)
+
+- name: Full dist-upgrade (security-only not requested, or no patchmon-agent to filter by)
+  ansible.builtin.apt:
+    upgrade: dist
+    autoremove: yes
+    autoclean: yes
+  when: >-
+    not (security_only_update | default(false))
+    or (_security_patchmon_agent_present.rc | default(1)) != 0    
+
+- name: Note that security-only was requested but no patchmon-agent was found -- falling back to a full dist-upgrade
+  # Makes the fallback above visible in the log. Without this, a security_only_update
+  # run on a host missing patchmon-agent silently becomes a full dist-upgrade with no indication
+  # in the Semaphore output that it happened.
+  when: >-
+    (security_only_update | default(false))
+    and (_security_patchmon_agent_present.rc | default(1)) != 0    
+  ansible.builtin.debug:
+    msg: >-
+      security_only_update was requested on {{ inventory_hostname }} but no patchmon-agent is
+      installed to identify which packages are security-flagged -- fell back to a full
+      dist-upgrade instead of skipping the host entirely.      
+
+- name: Get current package report to identify security-flagged updates
+  ansible.builtin.command: patchmon-agent report --json
+  register: _security_patchmon_report_raw
+  changed_when: false
+  when: (security_only_update | default(false)) and (_security_patchmon_agent_present.rc | default(1)) == 0
+
+- name: Build the list of security-flagged package names
+  when: (security_only_update | default(false)) and (_security_patchmon_agent_present.rc | default(1)) == 0
+  vars:
+    _security_report: "{{ _security_patchmon_report_raw.stdout | from_json }}"
+  ansible.builtin.set_fact:
+    _security_pkg_names: >-
+      {{ _security_report.packages
+         | selectattr('needsUpdate', 'equalto', true)
+         | selectattr('isSecurityUpdate', 'equalto', true)
+         | map(attribute='name') | list }}      
+
+- name: Install only the flagged security packages
+  when: >-
+    (security_only_update | default(false))
+    and (_security_patchmon_agent_present.rc | default(1)) == 0
+    and (_security_pkg_names | default([]) | length) > 0    
+  ansible.builtin.apt:
+    name: "{{ _security_pkg_names }}"
+    state: latest
+    force_apt_get: yes
+
+- name: Note that security-only mode found nothing pending
+  when: >-
+    (security_only_update | default(false))
+    and (_security_patchmon_agent_present.rc | default(1)) == 0
+    and (_security_pkg_names | default([]) | length) == 0    
+  ansible.builtin.debug:
+    msg: "security_only_update requested but no isSecurityUpdate packages currently pending on {{ inventory_hostname }} -- nothing to do."
