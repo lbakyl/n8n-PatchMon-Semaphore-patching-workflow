@@ -1,0 +1,52 @@
+---
+- name: Safely patch Galera Cluster (one node at a time)
+  hosts: galera  # Confirm by running: ansible-inventory -i inventory --graph --ask-vault-pass | grep -A20 '@'
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Update apt cache (capture repo errors clearly, auto-fix known Sury key issues)
+      ansible.builtin.include_tasks: apt_cache_update_tasks.yml
+
+    - name: Upgrade apt packages (full dist-upgrade, or security-only if requested)
+      ansible.builtin.include_tasks: security_only_patch.yml
+
+    - name: Use Galera-specific wording for the pre-reboot notification
+      ansible.builtin.set_fact:
+        reboot_notify_message: >-
+          🔄 Rebooting **{{ inventory_hostname }}** (Galera node) as part of a scheduled patch run
+          — this node will drop out of the cluster briefly and rejoin automatically; the other
+          node(s) should keep serving traffic.          
+
+    - name: Reboot if needed (kernel/uptime), with a pre-reboot heads-up notification
+      ansible.builtin.include_tasks: reboot_if_needed_tasks.yml
+
+    - name: Wait for the MariaDB port (3306) to be open
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: 3306
+        delay: 15
+        timeout: 600
+        state: started
+
+    - name: Wait until this node has rejoined the cluster (wsrep Synced)
+      ansible.builtin.shell: >
+        mysql -N -B -e "SHOW STATUS LIKE 'wsrep_local_state_comment';"        
+      register: wsrep_state
+      changed_when: false
+      until: "'Synced' in wsrep_state.stdout"
+      retries: 30 # 30 times 10s = up to 5 minutes
+      delay: 10
+
+    - name: Show cluster size for visibility
+      ansible.builtin.shell: >
+        mysql -N -B -e "SHOW STATUS LIKE 'wsrep_cluster_size';"        
+      register: wsrep_size
+      changed_when: false
+
+    - name: Report node health
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} → {{ wsrep_state.stdout.split('\t')[1] }} (cluster size {{ wsrep_size.stdout.split('\t')[1] }})"
+
+    - name: Verify patch results with PatchMon and update the Proxmox alert-cooldown tag
+      ansible.builtin.include_tasks: patchmon_verify_and_proxmox_tag_tasks.yml
