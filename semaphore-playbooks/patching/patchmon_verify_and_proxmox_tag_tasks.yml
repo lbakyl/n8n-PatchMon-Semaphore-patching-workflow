@@ -1,0 +1,130 @@
+---
+# Shared by patch_debian_nginx.yml, patch_debian_single_hosts.yml, and patch_debian_galera.yml.
+# Forces a fresh PatchMon report, works out what's still pending (scoped to what this run was
+# actually responsible for), and reflects that back to Proxmox as a tag-based alert cooldown.
+
+- name: Check whether patchmon-agent is installed on this host
+  ansible.builtin.command: which patchmon-agent
+  register: patchmon_agent_present
+  changed_when: false
+  failed_when: false
+
+- name: Force PatchMon to submit a fresh report now
+  ansible.builtin.command: patchmon-agent report
+  changed_when: false
+  when: patchmon_agent_present.rc == 0
+
+- name: Get an immediate local count of packages still needing updates
+  ansible.builtin.command: patchmon-agent report --json
+  register: patchmon_verify_raw
+  changed_when: false
+  when: patchmon_agent_present.rc == 0
+
+- name: Extract the lists of still-pending packages -- all of them, and just the security-flagged ones
+  when: patchmon_agent_present.rc == 0
+  vars:
+    _report: "{{ patchmon_verify_raw.stdout | from_json }}"
+  ansible.builtin.set_fact:
+    _all_still_pending_pkgs: "{{ _report.packages | selectattr('needsUpdate', 'equalto', true) | map(attribute='name') | list }}"
+    _security_still_pending_pkgs: "{{ _report.packages | selectattr('needsUpdate', 'equalto', true) | selectattr('isSecurityUpdate', 'equalto', true) | map(attribute='name') | list }}"
+
+- name: Scope the reported "still pending" list to what this run was actually responsible for
+  # On a security_only_update run, non-security packages are EXPECTED to remain pending -- that's
+  # not a partial failure, it's the run doing exactly what was asked. So still_pending_pkgs (which
+  # n8n's Patch Outcome judges success/partial against) only reflects the in-scope backlog;
+  # anything else pending goes into other_pending_pkgs for visibility only.
+  when: patchmon_agent_present.rc == 0
+  ansible.builtin.set_fact:
+    _still_pending_pkgs: "{{ _security_still_pending_pkgs if (security_only_update | default(false)) else _all_still_pending_pkgs }}"
+    _other_pending_pkgs: "{{ (_all_still_pending_pkgs | difference(_security_still_pending_pkgs)) if (security_only_update | default(false)) else [] }}"
+
+- name: Default the pending lists to empty when there's no agent to check
+  when: patchmon_agent_present.rc != 0
+  ansible.builtin.set_fact:
+    _still_pending_pkgs: []
+    _other_pending_pkgs: []
+
+- name: Report post-patch verification result
+  when: patchmon_agent_present.rc == 0
+  ansible.builtin.debug:
+    msg: >-
+      PATCH_VERIFY_JSON:
+      {{ {
+        'hostname': inventory_hostname,
+        'still_pending_count': (_still_pending_pkgs | length),
+        'still_pending_packages': _still_pending_pkgs,
+        'other_pending_count': (_other_pending_pkgs | length),
+        'other_pending_packages': _other_pending_pkgs,
+        'security_only_update': (security_only_update | default(false)),
+        'agent_present': true
+      } | to_json }}      
+
+- name: Report that verification was skipped (no agent found)
+  when: patchmon_agent_present.rc != 0
+  ansible.builtin.debug:
+    msg: >-
+      PATCH_VERIFY_JSON:
+      {{ {
+        'hostname': inventory_hostname,
+        'still_pending_count': -1,
+        'still_pending_packages': [],
+        'other_pending_count': 0,
+        'other_pending_packages': [],
+        'security_only_update': (security_only_update | default(false)),
+        'agent_present': false
+      } | to_json }}      
+
+- name: Read current Proxmox tags (to update the alert-cooldown tag)
+  # Guarded on proxmox_vmid too (not just the patchmon-agent check) -- this host might be a
+  # bare-metal/physical Proxmox node itself rather than a guest, in which case proxmox_node/
+  # proxmox_vmtype/proxmox_vmid are genuinely undefined (the dynamic Proxmox inventory only
+  # enumerates guests, not the hypervisor). Without this guard the URI templating below throws
+  # AnsibleUndefinedVariable and fails the whole task -- after packages were already patched OK.
+  when: patchmon_agent_present.rc == 0 and proxmox_vmid is defined
+  delegate_to: localhost
+  become: false
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:{{ proxmox_api_port | default(8006) }}/api2/json/nodes/{{ proxmox_node }}/{{ proxmox_vmtype }}/{{ proxmox_vmid }}/config"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_secret }}"
+    validate_certs: "{{ proxmox_validate_certs | default(false) }}"
+  register: _current_config_for_alert_tag
+
+- name: Compute tag list -- refresh alerted-* on partial, clear it on full resolution
+  when: patchmon_agent_present.rc == 0 and proxmox_vmid is defined
+  vars:
+    _tags_without_old_alert: "{{ (_current_config_for_alert_tag.json.data.tags | default('')).split(';') | select('!=', '') | reject('match', '^alerted-') | list }}"
+  ansible.builtin.set_fact:
+    _tags_after_verify: >-
+      {{
+        (_tags_without_old_alert + [ 'alerted-' + (lookup('pipe', 'date +%Y%m%d-%H%M')) ])
+        if (_still_pending_pkgs | length) > 0
+        else _tags_without_old_alert
+      }}      
+
+- name: Write updated tags back (sets a fresh 24h cooldown on partial, clears it on full success)
+  when: patchmon_agent_present.rc == 0 and proxmox_vmid is defined
+  delegate_to: localhost
+  become: false
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:{{ proxmox_api_port | default(8006) }}/api2/json/nodes/{{ proxmox_node }}/{{ proxmox_vmtype }}/{{ proxmox_vmid }}/config"
+    method: PUT
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_secret }}"
+    body_format: form-urlencoded
+    body:
+      tags: "{{ _tags_after_verify | join(';') }}"
+    status_code: [200]
+    validate_certs: "{{ proxmox_validate_certs | default(false) }}"
+
+- name: Restart patchmon-agent to clear any stale connection after package upgrades
+  # patchmon-agent's live connection to the PatchMon server can silently drop during a real
+  # dist-upgrade (network blip from restarted services etc.) without the daemon process itself
+  # crashing -- confirmed on mail1, where the host stayed "offline" in PatchMon until this
+  # restart. Best-effort: don't fail the whole patch run over it.
+  when: patchmon_agent_present.rc == 0
+  ansible.builtin.systemd:
+    name: patchmon-agent
+    state: restarted
+  ignore_errors: true
