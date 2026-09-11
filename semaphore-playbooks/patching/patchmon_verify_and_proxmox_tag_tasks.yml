@@ -1,6 +1,6 @@
 ---
-# Shared by patch_debian_nginx.yml, patch_debian_single_hosts.yml, and patch_debian_galera.yml.
-# Forces a fresh PatchMon report, works out what's still pending (scoped to what this run was
+# Shared by other templates.
+# Forces a fresh PatchMon report, works out what is still pending (scoped to what this run was
 # actually responsible for), and reflects that back to Proxmox as a tag-based alert cooldown.
 
 - name: Check whether patchmon-agent is installed on this host
