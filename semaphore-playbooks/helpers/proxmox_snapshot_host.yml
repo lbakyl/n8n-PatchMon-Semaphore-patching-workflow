@@ -1,0 +1,24 @@
+- name: Create a Proxmox Snapshot
+  hosts: all_proxmox_guests
+  become: false
+  connection: local
+  serial: 1
+  gather_facts: false
+  # no vars: block — all values come from group_vars
+  tasks:
+    - name: Create new snapshot (with RAM)
+      community.proxmox.proxmox_snap:
+        api_host: "{{ proxmox_api_host }}"
+        api_port: "{{ proxmox_api_port }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_secret }}"
+        validate_certs: "{{ proxmox_validate_certs | default(false) }}"
+        api_timeout: 30 # Important when calling via API or else it is 5 seconds
+        vmid: "{{ proxmox_vmid }}"
+        snapname: "Semaphore_Patch_Backup_{{ lookup('pipe', 'TZ=Europe/Prague date +%Y-%m-%d_%H-%M') }}"
+        description: "Semaphore Task ID: {{ semaphore_vars.task_details.id | default('Manual Run', true) }}"
+        vmstate: true
+        state: present
+        retention: 3
+        timeout: 300
