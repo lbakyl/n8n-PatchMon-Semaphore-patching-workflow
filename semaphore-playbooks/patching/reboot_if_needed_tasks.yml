@@ -1,0 +1,80 @@
+---
+# Shared by patch_debian_nginx.yml, patch_debian_single_hosts.yml, and patch_debian_galera.yml.
+# Reboots the host if the kernel needs it, uptime is over 90 days, or the running kernel isn't
+# the newest one installed. Sends a best-effort pre-reboot heads-up if alert_webhook_url is set
+# (passed as an extra var from n8n's Start Patch Task node; silently no-ops otherwise -- e.g. a
+# manual Semaphore run without extra vars).
+#
+# Set reboot_notify_message before including this file to override the default wording (e.g.
+# Galera nodes want to mention the cluster rejoin instead of the generic downtime note).
+
+- name: Check if a reboot is required (kernel/libs)
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: reboot_required_file
+
+- name: Check if uptime is greater than 90 days
+  ansible.builtin.assert:
+    that: (ansible_uptime_seconds | int) < 7776000
+    fail_msg: "Uptime over 90 days. Forcing reboot."
+    quiet: true
+  register: uptime_check
+  ignore_errors: true
+
+- name: Get the newest installed kernel package (may differ from the running kernel)
+  # /var/run/reboot-required is unreliable on this fleet (update-notifier-common isn't
+  # installed), so this kernel-version comparison is the more trustworthy signal.
+  ansible.builtin.shell: |
+    set -o pipefail
+    dpkg -l | awk '/^ii  linux-image-[0-9]/ {print $2}' | sed 's/^linux-image-//' | sort -V | tail -1    
+  args:
+    executable: /bin/bash
+  register: latest_installed_kernel
+  changed_when: false
+  failed_when: false
+
+- name: Notify Discord/Telegram that a reboot is about to happen (best-effort, brief downtime heads-up)
+  # A self-triggered reboot drops SSH and briefly shows the host "offline" in PatchMon -- both
+  # expected, but alarming in the moment without context.
+  when: >-
+    (alert_webhook_url | default('')) | length > 0
+    and (
+      reboot_required_file.stat.exists
+      or uptime_check.failed
+      or (latest_installed_kernel.stdout | length > 0 and ansible_kernel != latest_installed_kernel.stdout)
+    )    
+  delegate_to: localhost
+  become: false
+  ansible.builtin.uri:
+    url: "{{ alert_webhook_url }}"
+    method: POST
+    body_format: json
+    body:
+      content: >-
+        {{ reboot_notify_message | default(
+          '🔄 Rebooting **' ~ inventory_hostname ~ '** as part of a scheduled patch run — brief SSH/connectivity drop expected, should be back within a couple of minutes.'
+        ) }}        
+    status_code: [200, 204]
+  ignore_errors: true
+
+- name: Reboot if kernel needs it OR uptime > 90 days OR running kernel is not the newest installed
+  ansible.builtin.reboot:
+    msg: "Rebooting server after Ansible patch run"
+    connect_timeout: 5
+    reboot_timeout: 300
+    post_reboot_delay: 30
+    test_command: whoami
+  when: >-
+    reboot_required_file.stat.exists
+    or uptime_check.failed
+    or (latest_installed_kernel.stdout | length > 0 and ansible_kernel != latest_installed_kernel.stdout)    
+
+- name: Re-assert local lock directory after a possible reboot (tmpfs /run is wiped on boot)
+  # Only matters for non-Proxmox-guest hosts, whose patch-run lock lives in
+  # /run/patchmon-being-patched (see helpers/patchmon_tag_host.yml) rather than a Proxmox tag.
+  # The reboot task above wipes /run if it fires, which would otherwise silently drop the lock
+  # while this run is still legitimately in progress.
+  when: proxmox_vmid is not defined
+  ansible.builtin.file:
+    path: /run/patchmon-being-patched
+    state: directory
