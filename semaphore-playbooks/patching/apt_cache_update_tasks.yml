@@ -1,0 +1,37 @@
+---
+# Shared by patch_debian_nginx.yml, patch_debian_single_hosts.yml, and patch_debian_galera.yml.
+
+- name: Update apt cache (capture repo errors clearly)
+  block:
+    - name: Update apt repo and cache
+      ansible.builtin.apt:
+        update_cache: yes
+        force_apt_get: yes
+        cache_valid_time: 3600
+  rescue:
+    - name: Re-run apt-get update to capture the real error
+      ansible.builtin.command: apt-get update
+      register: apt_update_raw
+      changed_when: false
+      failed_when: false
+
+    - name: Show the captured apt-get update output (always visible, not just on crash)
+      ansible.builtin.debug:
+        msg: |
+          apt-get update rc={{ apt_update_raw.rc }}
+          --- stdout ---
+          {{ apt_update_raw.stdout }}
+          --- stderr ---
+          {{ apt_update_raw.stderr }}          
+
+    - name: Fail with the actual repo error (still broken after any auto-fix attempt)
+      # Decide pass/fail from the real return code rather than string-matching for
+      # "EXPKEYSIG"/"Err:".
+      ansible.builtin.fail:
+        msg: |
+          apt cache update FAILED on {{ inventory_hostname }} — likely a repo/GPG issue:
+          --- stdout ---
+          {{ apt_update_raw.stdout | default('') }}
+          --- stderr ---
+          {{ apt_update_raw.stderr | default('') }}          
+      when: (apt_update_raw.rc | default(1)) != 0
