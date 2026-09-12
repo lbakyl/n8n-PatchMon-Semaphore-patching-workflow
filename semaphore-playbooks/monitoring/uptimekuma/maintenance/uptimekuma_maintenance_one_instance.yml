@@ -1,0 +1,96 @@
+---
+# Included by uptimekuma_maintenance.yml once per configured Kuma instance
+# (loop_var: item -> {name, url}). Never included/ran directly.
+#
+# Sets _one_result, which the parent playbook collects into MAINTENANCE_RESULT_JSON.
+# Wrapped in block/rescue so one unreachable/misconfigured Kuma instance can't stop
+# the loop from continuing on to the next one.
+#
+- name: "{{ item.name }}: resolve credentials"
+  ansible.builtin.set_fact:
+    _cred: "{{ (uptimekuma_credentials | default({})).get(item.name) }}"
+ 
+- name: "{{ item.name }}: skip, no uptimekuma_credentials entry for this instance"
+  when: _cred is none
+  ansible.builtin.set_fact:
+    _one_result:
+      instance: "{{ item.name }}"
+      ok: false
+      skipped: true
+      reason: "no uptimekuma_credentials['{{ item.name }}'] defined in group_vars -- see group_vars_example/uptimekuma_vault.yml.example"
+      monitorsMatched: 0
+ 
+- name: "{{ item.name }}: log in, resolve tagged monitors, toggle maintenance"
+  when: _cred is not none
+  block:
+    - name: "{{ item.name }}: log in"
+      lucasheld.uptime_kuma.login:
+        api_url: "{{ item.url }}"
+        api_username: "{{ _cred.username }}"
+        api_password: "{{ _cred.password }}"
+      register: _login
+ 
+    - name: "{{ item.name }}: fetch all monitors"
+      lucasheld.uptime_kuma.monitor_info:
+        api_url: "{{ item.url }}"
+        api_token: "{{ _login.token }}"
+      register: _monitors
+ 
+    - name: "{{ item.name }}: find monitors tagged '{{ inventory_hostname }}'"
+      vars:
+        _tag_query: "[?tags[?name=='{{ inventory_hostname }}']].{id: id, name: name}"
+      ansible.builtin.set_fact:
+        _matched_monitors: "{{ _monitors.monitors | default([]) | json_query(_tag_query) }}"
+ 
+    - name: "{{ item.name }}: compute maintenance window start/end (only needed for 'start')"
+      when: _action == 'start'
+      ansible.builtin.set_fact:
+        _window_start: "{{ lookup('pipe', 'date \"+%Y-%m-%d %H:%M:%S\"') }}"
+        _window_end: "{{ lookup('pipe', 'date -d \"+' + (_duration_minutes | string) + ' minutes\" \"+%Y-%m-%d %H:%M:%S\"') }}"
+ 
+    - name: "{{ item.name }}: start maintenance window covering {{ _matched_monitors | length }} monitor(s)"
+      when: _action == 'start' and (_matched_monitors | length) > 0
+      lucasheld.uptime_kuma.maintenance:
+        api_url: "{{ item.url }}"
+        api_token: "{{ _login.token }}"
+        title: "patchmon-auto-{{ inventory_hostname }}"
+        description: "Auto-created by PatchMon/Semaphore before patching {{ inventory_hostname }}. Auto-expires even if the patch workflow never calls 'stop'."
+        state: present
+        active: true
+        strategy: single
+        dateRange:
+          - "{{ _window_start }}"
+          - "{{ _window_end }}"
+        monitors: "{{ _matched_monitors | json_query('[].{id: id}') }}"
+ 
+    - name: "{{ item.name }}: end (delete) the maintenance window"
+      when: _action == 'stop'
+      lucasheld.uptime_kuma.maintenance:
+        api_url: "{{ item.url }}"
+        api_token: "{{ _login.token }}"
+        title: "patchmon-auto-{{ inventory_hostname }}"
+        state: absent
+      ignore_errors: true
+ 
+    - name: "{{ item.name }}: record success"
+      ansible.builtin.set_fact:
+        _one_result:
+          instance: "{{ item.name }}"
+          ok: true
+          skipped: false
+          reason: ""
+          monitorsMatched: "{{ _matched_monitors | length }}"
+ 
+  rescue:
+    - name: "{{ item.name }}: record failure (login/API/network issue) without stopping the other instances"
+      ansible.builtin.set_fact:
+        _one_result:
+          instance: "{{ item.name }}"
+          ok: false
+          skipped: false
+          reason: "{{ ansible_failed_result.msg | default('unknown error talking to this Kuma instance') }}"
+          monitorsMatched: 0
+ 
+- name: "{{ item.name }}: append result to combined results list"
+  ansible.builtin.set_fact:
+    _results: "{{ (_results | default([])) + [_one_result] }}"
