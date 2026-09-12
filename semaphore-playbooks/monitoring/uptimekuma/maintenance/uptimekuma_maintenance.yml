@@ -1,0 +1,62 @@
+---
+# Purpose: start or stop an Uptime Kuma maintenance window covering every monitor,
+# on every Kuma instance you run, that is tagged with this host's inventory_hostname.
+
+- name: PatchMon - Toggle Uptime Kuma maintenance window for a host
+  hosts: all
+  connection: local
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/uptimekuma_vault.yml"
+ 
+  tasks:
+    - name: Default instance list to empty when the caller didn't supply one
+      ansible.builtin.set_fact:
+        _instances_raw: "{{ uptimekuma_instances | default([], true) }}"
+        _action: "{{ uptimekuma_action | default('start') }}"
+        _duration_minutes: "{{ uptimekuma_duration_minutes | default(10) }}"
+        _results: []
+ 
+    - name: Parse uptimekuma_instances if it arrived as a JSON string (Semaphore Survey Variables always send strings; a direct API call with a native JSON array does not)
+      ansible.builtin.set_fact:
+        _instances: "{{ _instances_raw if _instances_raw is not string else (_instances_raw | from_json) }}"
+ 
+    - name: Report a clean no-op when no instances are configured at all
+      when: (_instances | length) == 0
+      ansible.builtin.debug:
+        msg: >-
+          MAINTENANCE_RESULT_JSON:
+          {{ {
+            'hostname': inventory_hostname,
+            'action': _action,
+            'kumaEnabled': false,
+            'instancesConfigured': 0,
+            'instancesAttempted': 0,
+            'instancesOk': 0,
+            'monitorsMatchedTotal': 0,
+            'results': []
+          } | to_json }}          
+ 
+    - name: Toggle maintenance on every configured instance
+      when: (_instances | length) > 0
+      ansible.builtin.include_tasks: uptimekuma_maintenance_one_instance.yml
+      loop: "{{ _instances }}"
+      loop_control:
+        loop_var: item
+        label: "{{ item.name }}"
+ 
+    - name: Report combined result across all instances
+      when: (_instances | length) > 0
+      ansible.builtin.debug:
+        msg: >-
+          MAINTENANCE_RESULT_JSON:
+          {{ {
+            'hostname': inventory_hostname,
+            'action': _action,
+            'kumaEnabled': true,
+            'instancesConfigured': (_instances | length),
+            'instancesAttempted': (_results | length),
+            'instancesOk': (_results | selectattr('ok', 'equalto', true) | list | length),
+            'monitorsMatchedTotal': (_results | map(attribute='monitorsMatched') | sum),
+            'results': _results
+          } | to_json }}          
