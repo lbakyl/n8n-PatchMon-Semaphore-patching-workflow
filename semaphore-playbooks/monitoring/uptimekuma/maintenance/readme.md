@@ -1,6 +1,6 @@
-# Uptime Kuma Setup With Maintenance Eindows
+# Uptime Kuma Setup With Maintenance Windows
 
-Optional add-on to the PatchMon/Semaphore/n8n orchestrator. See [`Jan's tutorial - part 3`](https://bachelor-tech.com/automate-patching-with-semaphore-ui-patchmon-n8n/part-3-set-up-uptimekuma-for-monitoring-for-maintenance-windows-during-patching#step-3-encrypt-uptime-kum). Off by default; nothing
+Optional add-on to the PatchMon/Semaphore/n8n orchestrator. See [`Jan's tutorial - part 3`](https://bachelor-tech.com/automate-patching-with-semaphore-ui-patchmon-n8n/part-3-set-up-uptimekuma-for-monitoring-for-maintenance-windows-during-patching). Off by default; nothing
 here is required for patching to keep working. This puts the affected host's
 monitors into an Uptime Kuma maintenance window (across however many Kuma
 instances you run) for the duration of a patch run, so a reboot or service
