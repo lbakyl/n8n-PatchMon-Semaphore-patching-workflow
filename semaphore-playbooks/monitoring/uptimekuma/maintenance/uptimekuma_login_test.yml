@@ -1,0 +1,58 @@
+---
+# Read-only smoke test: confirms whether the lucasheld.uptime_kuma collection can
+# even log in to your Uptime Kuma instance and list its monitors. Makes ZERO
+# changes -- no monitor, tag, or maintenance window is created, edited, or
+# deleted. Safe to run against a production instance, including a beta one.
+#
+# Pass connection details as Semaphore "Environment / Extra Variables" -- the
+# same mechanism you already use for patchmon_tag_action etc. Do NOT hardcode
+# real credentials into this file if it lives in a repo you share:
+#
+#   {"uptimekuma_test_url": "http://1.2.3.4:3001",
+#    "uptimekuma_test_username": "your_username",
+#    "uptimekuma_test_password": "your_password"}
+
+- name: Uptime Kuma login smoke test (read-only)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Fail early with a clear message if connection details weren't supplied
+      ansible.builtin.assert:
+        that:
+          - uptimekuma_test_url is defined
+          - uptimekuma_test_username is defined
+          - uptimekuma_test_password is defined
+        fail_msg: "Pass uptimekuma_test_url / uptimekuma_test_username / uptimekuma_test_password as Extra Variables when running this template."
+
+    - name: Log in
+      lucasheld.uptime_kuma.login:
+        api_url: "{{ uptimekuma_test_url }}"
+        api_username: "{{ uptimekuma_test_username }}"
+        api_password: "{{ uptimekuma_test_password }}"
+      register: _login
+
+    - name: Report login result
+      ansible.builtin.debug:
+        msg: "LOGIN OK against {{ uptimekuma_test_url }}. Token starts with: {{ (_login.token | default('')) | truncate(12, True, '...') }}"
+
+    - name: Fetch all monitors (read-only)
+      lucasheld.uptime_kuma.monitor_info:
+        api_url: "{{ uptimekuma_test_url }}"
+        api_token: "{{ _login.token }}"
+      register: _monitors
+
+    - name: Report monitor count
+      ansible.builtin.debug:
+        msg: "Found {{ _monitors.monitors | default([]) | length }} monitor(s) on this instance."
+
+    - name: Report the raw shape of the first monitor's tags field -- this is the one thing we actually need to see
+      when: (_monitors.monitors | default([])) | length > 0
+      ansible.builtin.debug:
+        msg: "SAMPLE_TAGS_JSON: {{ (_monitors.monitors[0].tags | default('NO TAGS KEY ON THIS MONITOR OBJECT')) | to_json }}"
+
+    - name: Note when there are zero monitors to sample
+      when: (_monitors.monitors | default([])) | length == 0
+      ansible.builtin.debug:
+        msg: "Login and monitor_info both worked, but this instance reported zero monitors - nothing to sample for tag shape. Try again against an instance that has at least one tagged monitor."
